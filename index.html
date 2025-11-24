@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ko">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Jira Lambda Caller</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      padding: 40px 16px;
+      display: flex;
+      justify-content: center;
+      background: #f5f5f5;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 10px 35px rgba(0, 0, 0, 0.08);
+      padding: 32px;
+      box-sizing: border-box;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin: 0 0 24px;
+      color: #111;
+      text-align: center;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #d0d5dd;
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+
+    button {
+      padding: 14px;
+      font-size: 16px;
+      background: #0052cc;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    button:not(:disabled):hover {
+      background: #003d99;
+    }
+
+    #responseBox {
+      margin-top: 28px;
+      padding: 20px;
+      border-radius: 12px;
+      background: #0c1d33;
+      color: #d9e1f2;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 140px;
+    }
+
+    .helper {
+      font-size: 13px;
+      color: #667085;
+      margin-top: 4px;
+    }
+
+    .status {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .status.error {
+      color: #d92d20;
+    }
+
+    .status.success {
+      color: #039855;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="card">
+    <h1>Jira 업데이트 호출</h1>
+    <form id="jiraForm">
+      <div>
+        <label for="issueInput">Issue</label>
+        <input id="issueInput" name="issue" placeholder="예) P2-70735" autocomplete="off" required />
+        <div class="helper">업데이트할 Jira 이슈 키를 입력하세요.</div>
+      </div>
+      <div>
+        <label for="updateSelect">Update</label>
+        <select id="updateSelect" name="update">
+          <option value="true">true</option>
+          <option value="false" selected>false</option>
+        </select>
+        <div class="helper">true 선택 시 업데이트, false 선택 시 조회만 수행.</div>
+      </div>
+      <div>
+        <label for="passwordInput">Password</label>
+        <input id="passwordInput" name="password" type="password" placeholder="보안 비밀번호" autocomplete="off" required />
+        <div class="helper">보안을 위해 비밀번호를 입력해야 합니다.</div>
+      </div>
+      <button type="submit" id="submitBtn">Post</button>
+    </form>
+    <section id="responseSection">
+      <div id="statusText" class="status">아직 호출하지 않았습니다.</div>
+      <pre id="responseBox">응답이 여기에 표시됩니다.</pre>
+    </section>
+  </main>
+  <script>
+    const endpoint =
+      "https://xxanatchmvujwbl7cz2nguy3440hgaoq.lambda-url.ap-northeast-2.on.aws/";
+    const form = document.getElementById("jiraForm");
+    const issueInput = document.getElementById("issueInput");
+    const updateSelect = document.getElementById("updateSelect");
+    const passwordInput = document.getElementById("passwordInput");
+    const statusText = document.getElementById("statusText");
+    const responseBox = document.getElementById("responseBox");
+    const submitBtn = document.getElementById("submitBtn");
+    const PASSWORD = "pubgt2";
+
+    const updateSubmitState = () => {
+      const hasIssue = issueInput.value.trim().length > 0;
+      const passOk = passwordInput.value === PASSWORD;
+      submitBtn.disabled = !(hasIssue && passOk);
+    };
+
+    updateSubmitState();
+    issueInput.addEventListener("input", updateSubmitState);
+    passwordInput.addEventListener("input", updateSubmitState);
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const issueKey = issueInput.value.trim();
+      const updateValue = updateSelect.value === "true";
+      const passwordValue = passwordInput.value;
+
+      if (!issueKey) {
+        statusText.textContent = "Issue 키를 입력해주세요.";
+        statusText.className = "status error";
+        issueInput.focus();
+        return;
+      }
+
+      if (passwordValue !== PASSWORD) {
+        statusText.textContent = "비밀번호가 일치하지 않습니다.";
+        statusText.className = "status error";
+        passwordInput.focus();
+        return;
+      }
+
+      const payload = {
+        issue_key: issueKey,
+        update: updateValue,
+      };
+
+      statusText.textContent = "호출 중...";
+      statusText.className = "status";
+      responseBox.textContent = "";
+      submitBtn.disabled = true;
+
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const text = await res.text();
+        const isJson = text.startsWith("{") || text.startsWith("[");
+        const formatted = isJson ? JSON.stringify(JSON.parse(text), null, 2) : text;
+
+        if (!res.ok) {
+          statusText.textContent = `오류 발생: ${res.status} ${res.statusText}`;
+          statusText.className = "status error";
+        } else {
+          statusText.textContent = "호출 성공";
+          statusText.className = "status success";
+        }
+        responseBox.textContent = formatted;
+      } catch (error) {
+        statusText.textContent = "네트워크 오류가 발생했습니다.";
+        statusText.className = "status error";
+        responseBox.textContent = error.message;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+
+</html>
