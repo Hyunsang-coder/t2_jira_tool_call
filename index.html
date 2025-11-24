@@ -49,6 +49,17 @@
       margin-bottom: 6px;
     }
 
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+
     input,
     select {
       width: 100%;
@@ -120,8 +131,10 @@
     <form id="jiraForm">
       <div>
         <label for="issueInput">Issue</label>
-        <input id="issueInput" name="issue" placeholder="예) P2-70735" autocomplete="off" required />
-        <div class="helper">업데이트할 Jira 이슈 키를 입력하세요.</div>
+        <input id="issueInput" name="issue" placeholder="예) P2-70735" autocomplete="off" list="issueHistoryList"
+          required />
+        <datalist id="issueHistoryList"></datalist>
+        <div class="helper">업데이트할 Jira 이슈 키를 입력하세요. 최근 입력 값이 제안됩니다.</div>
       </div>
       <div>
         <label for="updateSelect">Update</label>
@@ -136,6 +149,13 @@
         <input id="passwordInput" name="password" type="password" placeholder="보안 비밀번호" autocomplete="off" required />
         <div class="helper">보안을 위해 비밀번호를 입력해야 합니다.</div>
       </div>
+      <div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="savePassword" />
+          <label for="savePassword" style="margin: 0; font-weight: 500">비밀번호 저장</label>
+        </div>
+        <div class="helper">공용 기기에서는 사용하지 마세요.</div>
+      </div>
       <button type="submit" id="submitBtn">Post</button>
     </form>
     <section id="responseSection">
@@ -148,12 +168,58 @@
       "https://xxanatchmvujwbl7cz2nguy3440hgaoq.lambda-url.ap-northeast-2.on.aws/";
     const form = document.getElementById("jiraForm");
     const issueInput = document.getElementById("issueInput");
+    const issueHistoryList = document.getElementById("issueHistoryList");
     const updateSelect = document.getElementById("updateSelect");
     const passwordInput = document.getElementById("passwordInput");
+    const savePasswordCheckbox = document.getElementById("savePassword");
     const statusText = document.getElementById("statusText");
     const responseBox = document.getElementById("responseBox");
     const submitBtn = document.getElementById("submitBtn");
     const PASSWORD = "pubgt2";
+    const PASSWORD_STORAGE_KEY = "jira-call-password";
+    const ISSUE_HISTORY_STORAGE_KEY = "jira-call-issue-history";
+    const MAX_ISSUE_HISTORY = 10;
+    const buildLog = (data) => JSON.stringify(data, null, 2);
+
+    const storedPassword = localStorage.getItem(PASSWORD_STORAGE_KEY);
+    if (storedPassword) {
+      passwordInput.value = storedPassword;
+      savePasswordCheckbox.checked = true;
+    }
+
+    const loadIssueHistory = () => {
+      try {
+        const raw = localStorage.getItem(ISSUE_HISTORY_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        console.warn("Failed to load issue history", e);
+        return [];
+      }
+    };
+
+    const renderIssueHistory = () => {
+      const history = loadIssueHistory();
+      issueHistoryList.innerHTML = "";
+      history.forEach((issue) => {
+        const option = document.createElement("option");
+        option.value = issue;
+        issueHistoryList.appendChild(option);
+      });
+      if (!issueInput.value && history.length > 0) {
+        issueInput.value = history[0];
+      }
+    };
+
+    const saveIssueHistory = (issue) => {
+      if (!issue) return;
+      const history = loadIssueHistory().filter((item) => item !== issue);
+      history.unshift(issue);
+      const trimmed = history.slice(0, MAX_ISSUE_HISTORY);
+      localStorage.setItem(ISSUE_HISTORY_STORAGE_KEY, JSON.stringify(trimmed));
+      renderIssueHistory();
+    };
+
+    renderIssueHistory();
 
     const updateSubmitState = () => {
       const hasIssue = issueInput.value.trim().length > 0;
@@ -163,7 +229,19 @@
 
     updateSubmitState();
     issueInput.addEventListener("input", updateSubmitState);
-    passwordInput.addEventListener("input", updateSubmitState);
+    passwordInput.addEventListener("input", () => {
+      updateSubmitState();
+      if (savePasswordCheckbox.checked) {
+        localStorage.setItem(PASSWORD_STORAGE_KEY, passwordInput.value);
+      }
+    });
+    savePasswordCheckbox.addEventListener("change", () => {
+      if (savePasswordCheckbox.checked) {
+        localStorage.setItem(PASSWORD_STORAGE_KEY, passwordInput.value);
+      } else {
+        localStorage.removeItem(PASSWORD_STORAGE_KEY);
+      }
+    });
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -189,6 +267,7 @@
         issue_key: issueKey,
         update: updateValue,
       };
+      saveIssueHistory(issueKey);
 
       statusText.textContent = "호출 중...";
       statusText.className = "status";
@@ -204,20 +283,38 @@
 
         const text = await res.text();
         const isJson = text.startsWith("{") || text.startsWith("[");
-        const formatted = isJson ? JSON.stringify(JSON.parse(text), null, 2) : text;
+        const parsedBody = isJson ? JSON.parse(text) : text;
+        const responseMeta = {
+          status: res.status,
+          statusText: res.statusText,
+          headers: Object.fromEntries(res.headers.entries()),
+          body: parsedBody,
+        };
 
         if (!res.ok) {
           statusText.textContent = `오류 발생: ${res.status} ${res.statusText}`;
           statusText.className = "status error";
+          responseBox.textContent = buildLog({
+            timestamp: new Date().toISOString(),
+            request: payload,
+            response: responseMeta,
+          });
         } else {
           statusText.textContent = "호출 성공";
           statusText.className = "status success";
+          responseBox.textContent = buildLog(parsedBody);
         }
-        responseBox.textContent = formatted;
       } catch (error) {
         statusText.textContent = "네트워크 오류가 발생했습니다.";
         statusText.className = "status error";
-        responseBox.textContent = error.message;
+        responseBox.textContent = buildLog({
+          timestamp: new Date().toISOString(),
+          request: payload,
+          error: {
+            message: error.message,
+            stack: error.stack,
+          },
+        });
       } finally {
         submitBtn.disabled = false;
       }
