@@ -91,6 +91,34 @@
       background: #003d99;
     }
 
+    .loading-indicator {
+      display: none;
+      margin-top: 16px;
+      align-items: center;
+      gap: 10px;
+      color: #0052cc;
+      font-weight: 600;
+    }
+
+    .loading-indicator.active {
+      display: flex;
+    }
+
+    .loading-indicator .spinner {
+      width: 18px;
+      height: 18px;
+      border: 3px solid rgba(0, 82, 204, 0.2);
+      border-top-color: #0052cc;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
     #responseBox {
       margin-top: 28px;
       padding: 20px;
@@ -127,7 +155,7 @@
 
 <body>
   <main class="card">
-    <h1>Jira 업데이트 호출</h1>
+    <h1>Jira 자동 번역 호출</h1>
     <form id="jiraForm">
       <div>
         <label for="issueInput">Issue</label>
@@ -158,6 +186,10 @@
       </div>
       <button type="submit" id="submitBtn">Post</button>
     </form>
+    <div id="loadingIndicator" class="loading-indicator" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <span id="elapsedText">0.0초 경과</span>
+    </div>
     <section id="responseSection">
       <div id="statusText" class="status">아직 호출하지 않았습니다.</div>
       <pre id="responseBox">응답이 여기에 표시됩니다.</pre>
@@ -175,11 +207,14 @@
     const statusText = document.getElementById("statusText");
     const responseBox = document.getElementById("responseBox");
     const submitBtn = document.getElementById("submitBtn");
+    const loadingIndicator = document.getElementById("loadingIndicator");
+    const elapsedText = document.getElementById("elapsedText");
     const PASSWORD = "pubgt2";
     const PASSWORD_STORAGE_KEY = "jira-call-password";
     const ISSUE_HISTORY_STORAGE_KEY = "jira-call-issue-history";
     const MAX_ISSUE_HISTORY = 10;
     const buildLog = (data) => JSON.stringify(data, null, 2);
+    let loadingInterval = null;
 
     const storedPassword = localStorage.getItem(PASSWORD_STORAGE_KEY);
     if (storedPassword) {
@@ -220,6 +255,24 @@
     };
 
     renderIssueHistory();
+
+    const startLoading = () => {
+      const startedAt = Date.now();
+      loadingIndicator.classList.add("active");
+      elapsedText.textContent = "0.0초 경과";
+      loadingInterval = setInterval(() => {
+        const elapsed = (Date.now() - startedAt) / 1000;
+        elapsedText.textContent = `${elapsed.toFixed(1)}초 경과`;
+      }, 100);
+    };
+
+    const stopLoading = () => {
+      if (loadingInterval) {
+        clearInterval(loadingInterval);
+        loadingInterval = null;
+      }
+      loadingIndicator.classList.remove("active");
+    };
 
     const updateSubmitState = () => {
       const hasIssue = issueInput.value.trim().length > 0;
@@ -273,6 +326,7 @@
       statusText.className = "status";
       responseBox.textContent = "";
       submitBtn.disabled = true;
+      startLoading();
 
       try {
         const res = await fetch(endpoint, {
@@ -317,6 +371,7 @@
         });
       } finally {
         submitBtn.disabled = false;
+        stopLoading();
       }
     });
   </script>
