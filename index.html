@@ -162,7 +162,7 @@
         <input id="issueInput" name="issue" placeholder="예) P2-70735" autocomplete="off" list="issueHistoryList"
           required />
         <datalist id="issueHistoryList"></datalist>
-        <div class="helper">업데이트할 Jira 이슈 키를 입력하세요. 최근 입력 값이 제안됩니다.</div>
+        <div class="helper">업데이트할 Jira 이슈 키 또는 url을 입력하세요.</div>
       </div>
       <div>
         <label for="updateSelect">Update</label>
@@ -184,7 +184,7 @@
         </div>
         <div class="helper">공용 기기에서는 사용하지 마세요.</div>
       </div>
-      <button type="submit" id="submitBtn">Post</button>
+      <button type="submit" id="submitBtn">호출</button>
     </form>
     <div id="loadingIndicator" class="loading-indicator" aria-live="polite">
       <div class="spinner" aria-hidden="true"></div>
@@ -256,6 +256,45 @@
 
     renderIssueHistory();
 
+    const parseIssueKey = (input) => {
+      const trimmed = input.trim();
+      if (!trimmed) return null;
+
+      // 이슈 키 패턴 정의 (PROJECT-NUMBER 형식)
+      const issueKeyPattern = /^[A-Z0-9]+-[0-9]+$/i;
+
+      // URL 형식인지 확인 (http:// 또는 https://로 시작)
+      // /browse/ 다음에 이슈 키가 오는 경우
+      const browseUrlPattern = /^https?:\/\/[^\/]+\/browse\/([A-Z0-9]+-[0-9]+)/i;
+      const browseMatch = trimmed.match(browseUrlPattern);
+      if (browseMatch) {
+        return browseMatch[1].toUpperCase(); // 이슈 키 추출 후 대문자 변환
+      }
+
+      // 이미 이슈 키 형식인지 확인
+      if (issueKeyPattern.test(trimmed)) {
+        return trimmed.toUpperCase(); // 대문자로 정규화
+      }
+
+      // URL이지만 다른 형식인 경우, URL 파싱하여 경로에서 이슈 키 추출 시도
+      try {
+        const url = new URL(trimmed);
+        // pathname에서 마지막 경로 세그먼트 확인
+        const pathParts = url.pathname.split('/').filter(Boolean);
+        for (let i = pathParts.length - 1; i >= 0; i--) {
+          const part = pathParts[i];
+          if (issueKeyPattern.test(part)) {
+            return part.toUpperCase();
+          }
+        }
+      } catch (e) {
+        // URL 파싱 실패 시 무시 (일반 텍스트일 수 있음)
+      }
+
+      // 그 외의 경우 원본 반환 (기존 동작 유지)
+      return trimmed;
+    };
+
     const startLoading = () => {
       const startedAt = Date.now();
       loadingIndicator.classList.add("active");
@@ -282,6 +321,17 @@
 
     updateSubmitState();
     issueInput.addEventListener("input", updateSubmitState);
+    issueInput.addEventListener("paste", (event) => {
+      // paste 이벤트 후 파싱된 값으로 업데이트
+      setTimeout(() => {
+        const rawInput = issueInput.value.trim();
+        const parsedKey = parseIssueKey(rawInput);
+        if (parsedKey && parsedKey !== rawInput) {
+          issueInput.value = parsedKey;
+          updateSubmitState();
+        }
+      }, 0);
+    });
     passwordInput.addEventListener("input", () => {
       updateSubmitState();
       if (savePasswordCheckbox.checked) {
@@ -298,7 +348,8 @@
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const issueKey = issueInput.value.trim();
+      const rawInput = issueInput.value.trim();
+      const issueKey = parseIssueKey(rawInput);
       const updateValue = updateSelect.value === "true";
       const passwordValue = passwordInput.value;
 
